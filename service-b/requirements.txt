@@ -1,0 +1,22 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+psycopg2-binary==2.9.9
+python-json-logger==2.0.7
+
+# OTel SDK core
+opentelemetry-sdk==1.24.0
+opentelemetry-api==1.24.0
+
+# OTLP gRPC para trazas y logs hacia el Collector
+opentelemetry-exporter-otlp-proto-grpc==1.24.0
+
+# Prometheus: único camino de métricas de la aplicación
+opentelemetry-exporter-prometheus==0.45b0
+prometheus-client==0.20.0
+
+# Auto-instrumentación
+opentelemetry-instrumentation-fastapi==0.45b0
+opentelemetry-instrumentation-psycopg2==0.45b0
+
+# Compatibilidad de trace IDs con AWS X-Ray
+opentelemetry-sdk-extension-aws==2.1.0
