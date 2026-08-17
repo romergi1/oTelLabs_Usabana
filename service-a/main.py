@@ -112,7 +112,12 @@ if OTEL_ENABLED:
 
     # Auto-instrumentación que no depende del objeto FastAPI `app`.
     HTTPXClientInstrumentor().instrument(tracer_provider=tracer_provider)
-    Psycopg2Instrumentor().instrument(tracer_provider=tracer_provider)
+    # Psycopg2Instrumentor().instrument(tracer_provider=tracer_provider)
+    
+    Psycopg2Instrumentor().instrument(
+        tracer_provider=tracer_provider,
+        skip_dep_check=True,
+    )
 
 
 # Las APIs de OTel retornan implementaciones no-op cuando no hay provider SDK.

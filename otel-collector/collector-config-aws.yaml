@@ -1,0 +1,382 @@
+# =============================================================================
+# ADOT Collector - Laboratorio OpenTelemetry AWS
+#
+# Arquitectura:
+#
+# service-a :8000 / Prometheus :9090
+# service-b :8001 / Prometheus :9091
+#        |
+#        +---- OTLP gRPC :4317 / HTTP :4318
+#        |
+#        v
+# AWS Distro for OpenTelemetry Collector
+#        |
+#        +---- Metrics --> Amazon Managed Service for Prometheus (AMP)
+#        +---- Traces  --> AWS X-Ray
+#        +---- Logs    --> Amazon CloudWatch Logs
+#
+# Grafana:
+#   Grafana OSS local consulta AMP y CloudWatch.
+# =============================================================================
+
+
+# =============================================================================
+# EXTENSIONS
+# =============================================================================
+
+extensions:
+
+  # Health endpoint del Collector.
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # Diagnóstico.
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # Firma AWS SigV4 requerida para enviar métricas a AMP.
+  sigv4auth/amp:
+    region: us-east-1
+    service: aps
+
+
+# =============================================================================
+# RECEIVERS
+# =============================================================================
+
+receivers:
+
+  # ---------------------------------------------------------------------------
+  # OTLP
+  # Recibe traces, metrics y logs enviados por los SDK OpenTelemetry.
+  # ---------------------------------------------------------------------------
+
+  otlp:
+    protocols:
+
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+      http:
+        endpoint: 0.0.0.0:4318
+
+
+  # ---------------------------------------------------------------------------
+  # PROMETHEUS
+  # Scraping de las métricas expuestas por service-a y service-b.
+  #
+  # Los cuatro contenedores están dentro de la misma ECS Task awsvpc,
+  # por eso se usa loopback 127.0.0.1.
+  # ---------------------------------------------------------------------------
+
+  prometheus:
+    config:
+
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 10s
+
+      scrape_configs:
+
+        # Métricas service-a.
+        - job_name: service-a
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - "127.0.0.1:9090"
+
+        # Métricas service-b.
+        - job_name: service-b
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - "127.0.0.1:9091"
+
+        # Métricas internas del propio Collector.
+        - job_name: otel-collector
+          static_configs:
+            - targets:
+                - "127.0.0.1:8888"
+
+
+# =============================================================================
+# PROCESSORS
+# =============================================================================
+
+processors:
+
+  # ---------------------------------------------------------------------------
+  # MEMORY LIMITER
+  # Protege al Collector frente a OOM.
+  # ---------------------------------------------------------------------------
+
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+
+  # ---------------------------------------------------------------------------
+  # RESOURCE
+  # Agrega atributos comunes a las tres señales.
+  # ---------------------------------------------------------------------------
+
+  resource:
+    attributes:
+
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT:-aws-lab}
+        action: upsert
+
+      - key: cloud.region
+        value: ${env:CLOUD_REGION:-us-east-1}
+        action: upsert
+
+      - key: service.namespace
+        value: observability-lab
+        action: insert
+
+      - key: telemetry.collector
+        value: adot
+        action: insert
+
+
+  # ---------------------------------------------------------------------------
+  # RESOURCE DETECTION
+  # Recupera atributos del entorno ECS.
+  # ---------------------------------------------------------------------------
+
+  resourcedetection:
+    detectors:
+      - env
+      - ecs
+
+    timeout: 10s
+    override: false
+
+
+  # ---------------------------------------------------------------------------
+  # FILTER
+  # Evita generar trazas de /health.
+  # ---------------------------------------------------------------------------
+
+  filter/health:
+    error_mode: ignore
+
+    traces:
+      span:
+        - 'attributes["http.route"] == "/health"'
+        - 'attributes["url.path"] == "/health"'
+        - 'attributes["http.target"] == "/health"'
+
+
+  # ---------------------------------------------------------------------------
+  # ATTRIBUTES METRICS
+  # Elimina atributos de poca utilidad / cardinalidad innecesaria.
+  # ---------------------------------------------------------------------------
+
+  attributes/metrics:
+    actions:
+
+      - key: http.flavor
+        action: delete
+
+
+  # ---------------------------------------------------------------------------
+  # BATCH
+  # Debe ir al final del pipeline de processors.
+  # ---------------------------------------------------------------------------
+
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+
+# =============================================================================
+# EXPORTERS
+# =============================================================================
+
+exporters:
+
+  # ---------------------------------------------------------------------------
+  # AWS X-RAY
+  # Backend AWS de trazas.
+  # ---------------------------------------------------------------------------
+
+  awsxray:
+    region: us-east-1
+
+
+  # ---------------------------------------------------------------------------
+  # AMAZON MANAGED SERVICE FOR PROMETHEUS
+  #
+  # Este es el componente que faltaba para que AMP reciba métricas.
+  # ---------------------------------------------------------------------------
+
+  prometheusremotewrite/amp:
+
+    endpoint: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-61df093f-e3d0-42b7-9676-8d69ffc0537c/api/v1/remote_write"
+
+    auth:
+      authenticator: sigv4auth/amp
+
+    # Conserva nombres como http_requests_total.
+    add_metric_suffixes: false
+
+    resource_to_telemetry_conversion:
+      enabled: true
+
+
+  # ---------------------------------------------------------------------------
+  # PROMETHEUS LOCAL
+  #
+  # Útil para diagnóstico del Collector.
+  # No sustituye AMP.
+  # ---------------------------------------------------------------------------
+
+  prometheus:
+
+    endpoint: "0.0.0.0:8889"
+
+    namespace: otelcol
+
+    send_timestamps: true
+
+    add_metric_suffixes: false
+
+    resource_to_telemetry_conversion:
+      enabled: true
+
+
+  # ---------------------------------------------------------------------------
+  # CLOUDWATCH LOGS
+  #
+  # Logs recibidos mediante OTLP.
+  # ---------------------------------------------------------------------------
+
+  awscloudwatchlogs:
+
+    log_group_name: "/otel-lab/application"
+
+    log_stream_name: "otel-collector"
+
+    region: us-east-1
+
+    raw_log: false
+
+
+  # ---------------------------------------------------------------------------
+  # DEBUG
+  #
+  # Permite diagnosticar las señales desde stdout del Collector.
+  # ---------------------------------------------------------------------------
+
+  debug:
+    verbosity: basic
+
+
+# =============================================================================
+# SERVICE / PIPELINES
+# =============================================================================
+
+service:
+
+  # IMPORTANTE:
+  # sigv4auth debe estar habilitado aquí.
+  extensions:
+
+    - health_check
+    - pprof
+    - zpages
+    - sigv4auth/amp
+
+
+  pipelines:
+
+    # -------------------------------------------------------------------------
+    # TRACES
+    #
+    # Apps -> OTLP -> ADOT -> AWS X-Ray
+    # -------------------------------------------------------------------------
+
+    traces:
+
+      receivers:
+        - otlp
+
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - filter/health
+        - batch
+
+      exporters:
+        - awsxray
+        - debug
+
+
+    # -------------------------------------------------------------------------
+    # METRICS
+    #
+    # service-a :9090
+    # service-b :9091
+    # Collector :8888
+    #
+    #      -> Prometheus receiver
+    #      -> AMP Remote Write
+    # -------------------------------------------------------------------------
+
+    metrics:
+
+      receivers:
+        - otlp
+        - prometheus
+
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - attributes/metrics
+        - batch
+
+      exporters:
+        - prometheusremotewrite/amp
+        - prometheus
+        - debug
+
+
+    # -------------------------------------------------------------------------
+    # LOGS
+    #
+    # Apps -> OTLP -> ADOT -> CloudWatch Logs
+    # -------------------------------------------------------------------------
+
+    logs:
+
+      receivers:
+        - otlp
+
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - batch
+
+      exporters:
+        - awscloudwatchlogs
+        - debug
+
+
+  # ---------------------------------------------------------------------------
+  # TELEMETRÍA DEL COLLECTOR
+  # ---------------------------------------------------------------------------
+
+  telemetry:
+
+    logs:
+      level: info

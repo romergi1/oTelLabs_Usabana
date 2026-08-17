@@ -1,0 +1,39 @@
+services:
+
+  grafana-local:
+    image: grafana/grafana:latest
+    container_name: grafana-local
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    env_file:
+      - ./.grafana-aws.env
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+
+      # Evita que el SDK intente buscar un IAM Role EC2.
+      AWS_EC2_METADATA_DISABLED: "true"
+
+      # Plugins AWS
+      GF_PLUGINS_PREINSTALL: >-
+        grafana-amazonprometheus-datasource,
+        grafana-x-ray-datasource
+
+      # Necesario para los plugins AWS en Grafana self-hosted.
+      GF_AWS_FORWARD_SETTINGS_TO_PLUGINS: >-
+        grafana-amazonprometheus-datasource,
+        grafana-x-ray-datasource
+
+    volumes:
+      - grafana-aws-data:/var/lib/grafana
+
+volumes:
+  grafana-aws-data:

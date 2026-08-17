@@ -1,0 +1,136 @@
+extensions:
+  sigv4auth:
+    region: ${env:AWS_REGION}
+    service: aps
+
+receivers:
+
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 10s
+
+      scrape_configs:
+
+        - job_name: service-a
+          static_configs:
+            - targets:
+                - "127.0.0.1:9090"
+              labels:
+                service_name: service-a
+
+        - job_name: service-b
+          static_configs:
+            - targets:
+                - "127.0.0.1:9091"
+              labels:
+                service_name: service-b
+
+        - job_name: otel-collector
+          static_configs:
+            - targets:
+                - "127.0.0.1:8888"
+              labels:
+                service_name: otel-collector
+
+  awsecscontainermetrics:
+    collection_interval: 15s
+
+
+processors:
+
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+
+  resource:
+    attributes:
+
+      - key: deployment.environment
+        value: aws-lab
+        action: upsert
+
+      - key: cloud.provider
+        value: aws
+        action: upsert
+
+      - key: cloud.region
+        value: ${env:AWS_REGION}
+        action: upsert
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+
+exporters:
+
+  awsxray:
+    region: ${env:AWS_REGION}
+    aws_log_groups:
+      - /otel-lab/application
+
+  prometheusremotewrite:
+    endpoint: ${env:AMP_REMOTE_WRITE_ENDPOINT}
+    auth:
+      authenticator: sigv4auth
+
+  awscloudwatchlogs:
+    log_group_name: /otel-lab/application
+    log_stream_name: otlp-${env:HOSTNAME}
+    region: ${env:AWS_REGION}
+
+
+service:
+
+  extensions:
+    - sigv4auth
+
+  pipelines:
+
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - awsxray
+
+    metrics:
+      receivers:
+        - prometheus
+        - awsecscontainermetrics
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - prometheusremotewrite
+
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - awscloudwatchlogs
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed

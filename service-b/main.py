@@ -103,7 +103,13 @@ if OTEL_ENABLED:
     metrics.set_meter_provider(meter_provider)
 
     # service-b no usa httpx como cliente, por eso NO usa HTTPXClientInstrumentor.
-    Psycopg2Instrumentor().instrument(tracer_provider=tracer_provider)
+    # Psycopg2Instrumentor().instrument(tracer_provider=tracer_provider)
+    
+    Psycopg2Instrumentor().instrument(
+        tracer_provider=tracer_provider,
+        skip_dep_check=True,
+    )
+
 
 
 tracer = trace.get_tracer("service-b", APP_VERSION)

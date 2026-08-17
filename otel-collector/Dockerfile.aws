@@ -1,0 +1,5 @@
+FROM public.ecr.aws/aws-observability/aws-otel-collector:v0.47.0
+
+COPY collector-config-aws.yaml /etc/otel-config.yaml
+
+CMD ["--config=/etc/otel-config.yaml"]
