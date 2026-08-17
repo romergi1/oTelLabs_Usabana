@@ -1,0 +1,37 @@
+aws_region  = "us-east-1"
+environment = "aws-lab"
+
+cluster_name = "otel-lab"
+service_name = "otel-lab-svc"
+task_family  = "otel-lab"
+
+vpc_id = "vpc-REEMPLAZAR"
+
+public_subnet_ids = [
+  "subnet-REEMPLAZAR-1",
+  "subnet-REEMPLAZAR-2"
+]
+
+ecs_subnet_ids = [
+  "subnet-REEMPLAZAR-1",
+  "subnet-REEMPLAZAR-2"
+]
+
+assign_public_ip = true
+
+service_a_image = "399311815829.dkr.ecr.us-east-1.amazonaws.com/otel-lab/service-a:1.0.2"
+service_b_image = "399311815829.dkr.ecr.us-east-1.amazonaws.com/otel-lab/service-b:1.0.3"
+collector_image = "399311815829.dkr.ecr.us-east-1.amazonaws.com/otel-lab/adot-collector:1.0.2"
+
+postgres_image    = "postgres:16"
+postgres_user     = "otel"
+postgres_database = "otel"
+
+postgres_password_secret_arn = "arn:aws:secretsmanager:us-east-1:399311815829:secret:REEMPLAZAR"
+
+task_cpu    = "1024"
+task_memory = "2048"
+desired_count = 1
+
+ecs_log_retention_days         = 14
+application_log_retention_days = 14
