@@ -29,7 +29,8 @@ El laboratorio busca demostrar una implementación práctica de observabilidad e
 
 La arquitectura implementada desacopla la generación de telemetría de los backends de observabilidad. Las aplicaciones generan información bajo el estándar OpenTelemetry y el Collector se encarga de aplicar procesamiento, enriquecimiento, filtrado y exportación hacia los servicios de destino.
 
-![Arquitectura de Observabilidad](Diagramas/Arquitectura-completa-obs.png)
+<img width="2107" height="1535" alt="Arquitectura-completa-obs" src="https://github.com/user-attachments/assets/67020770-58ca-4358-b5c3-1c3b2782075c" />
+
 
 ### Flujo principal
 
